@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>终端聊天室</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --text-color: #0f0;
+            --border-color: #0f0;
+            --input-bg: #222;
+            --button-bg: #003300;
+            --button-hover: #005500;
+            --system-msg: #ff0;
+            --username-color: #0ff;
+            --error-color: #f00;
+        }
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .message {
+            margin-bottom: 0.5rem;
+            word-wrap: break-word;
+            line-height: 1.4;
+        }
+        .system {
+            color: var(--system-msg);
+            font-style: italic;
+        }
+        .user .username {
+            color: var(--username-color);
+            font-weight: bold;
+        }
+        #input-area {
+            display: flex;
+            padding: 1rem;
+        }
+        #message-input {
+            flex: 1;
+            padding: 0.5rem;
+            background-color: var(--input-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            font-family: inherit;
+        }
+        #send-button {
+            padding: 0 1rem;
+            background-color: var(--button-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            font-family: inherit;
+            cursor: pointer;
+            margin-left: 0.5rem;
+        }
+        #send-button:hover {
+            background-color: var(--button-hover);
+        }
+        #online-users {
+            padding: 0.5rem 1rem;
+            border-top: 1px solid var(--border-color);
+            background-color: #0a0a0a;
+        }
+        #logout-btn {
+            background-color: transparent;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 0.25rem 0.5rem;
+            cursor: pointer;
+        }
+        #logout-btn:hover {
+            background-color: var(--button-bg);
+        }
+        .error {
+            color: var(--error-color);
+            padding: 0.5rem;
+            text-align: center;
+        }
+        .blink {
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <header>
+            <h1>终端聊天室</h1>
+            <div>
+                <span id="current-user">加载中...</span>
+                <button id="logout-btn">退出</button>
+            </div>
+        </header>
+        
+        <div id="messages">
+            <div class="message system">正在连接到聊天服务器...</div>
+        </div>
+        
+        <div id="online-users">
+            <strong>在线用户:</strong> <span id="users-list">加载中...</span>
+        </div>
+        
+        <div id="input-area">
+            <input type="text" id="message-input" placeholder="输入消息..." autocomplete="off">
+            <button id="send-button">发送</button>
+        </div>
+        
+        <div id="error-message" class="error"></div>
+    </div>
+
+    <script>
+        // 获取当前用户
+        async function getCurrentUser() {
+            try {
+                const response = await fetch('get_current_user.php');
+                if (response.ok) {
+                    const username = await response.text();
+                    document.getElementById('current-user').textContent = `用户: ${username}`;
+                    return username;
+                }
+                return null;
+            } catch (error) {
+                showError('获取用户信息失败');
+                return null;
+            }
+        }
+
+        // 显示错误
+        function showError(message) {
+            const errorEl = document.getElementById('error-message');
+            errorEl.textContent = message;
+            setTimeout(() => {
+                errorEl.textContent = '';
+            }, 5000);
+        }
+        
+        // 添加消息到界面
+        function addMessage(message) {
+            const msgEl = document.createElement('div');
+            msgEl.className = 'message ' + (message.isSystem ? 'system' : 'user');
+            
+            if (message.isSystem) {
+                msgEl.textContent = message.content;
+            } else {
+                msgEl.innerHTML = `
+                    <span class="username">${message.username}:</span> 
+                    ${message.content}
+                `;
+            }
+            
+            messagesEl.appendChild(msgEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        
+        // 发送消息
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text) {
+                showError('消息不能为空');
+                return;
+            }
+            
+            try {
+                const response = await fetch('send_message.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `message=${encodeURIComponent(text)}`
+                });
+                
+                if (response.ok) {
+                    messageInput.value = '';
+                } else {
+                    const error = await response.text();
+                    showError('发送失败: ' + error);
+                }
+            } catch (error) {
+                showError('网络错误: ' + error.message);
+            }
+        }
+        
+        // 获取新消息
+        async function fetchMessages() {
+            try {
+                const response = await fetch(`get_messages.php?last_id=${lastMessageId}`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.messages && data.messages.length > 0) {
+                        data.messages.forEach(msg => {
+                            addMessage({
+                                isSystem: msg.is_system,
+                                username: msg.username,
+                                content: msg.content,
+                                id: msg.id
+                            });
+                            lastMessageId = msg.id;
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('获取消息失败:', error);
+            }
+        }
+        
+        // 获取在线用户
+        async function fetchOnlineUsers() {
+            try {
+                const response = await fetch('get_users.php');
+                
+                if (response.ok) {
+                    const users = await response.json();
+                    usersListEl.textContent = users.join(', ');
+                }
+            } catch (error) {
+                console.error('获取用户列表失败:', error);
+            }
+        }
+        
+        // 注销用户
+        async function logout() {
+            try {
+                const response = await fetch('logout.php');
+                if (response.ok) {
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                showError('注销失败: ' + error.message);
+            }
+        }
+        
+        // DOM元素
+        const messagesEl = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const usersListEl = document.getElementById('users-list');
+        const logoutBtn = document.getElementById('logout-btn');
+        
+        let lastMessageId = 0;
+        let currentUser = null;
+        
+        // 初始化
+        async function init() {
+            // 获取当前用户
+            currentUser = await getCurrentUser();
+            if (!currentUser) {
+                showError('无法验证用户身份，将返回登录页面');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 3000);
+                return;
+            }
+            
+            // 事件监听
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            sendButton.addEventListener('click', sendMessage);
+            logoutBtn.addEventListener('click', logout);
+            
+            // 定期刷新消息和用户列表
+            setInterval(() => {
+                fetchMessages();
+                fetchOnlineUsers();
+            }, 1000);
+            
+            // 初始加载
+            fetchMessages();
+            fetchOnlineUsers();
+            
+            // 聚焦输入框
+            messageInput.focus();
+        }
+        
+        // 启动应用
+        init();
+    </script>
+</body>
+</html>
